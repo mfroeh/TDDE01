@@ -1,0 +1,249 @@
+---
+title: "TDDE01 Lab 2"
+---
+
+Setup
+```{r}
+setwd("~/dev/TDDE01/lab2")
+# install.packages("glmnet")
+# install.packages("ggplot2")
+# install.packages("reshape2")
+# install.packages("tidyr")
+# install.packages("tree")
+```
+
+# Assignment 1
+Divide the data randomly in train and test.
+```{r}
+data = read.csv("tecator.csv", header=T)[,2:102]
+
+N = nrow(data)
+set.seed(12345)
+ids = sample(1:N, floor(N*0.5))
+data.train = data[ids,] 
+data.test = data[-ids,]
+```
+
+## Task 1
+```{r}
+model.linear = lm(Fat~., data=data.train)
+pred.train = predict(model.linear, data.train, type = "response")
+pred.test = predict(model.linear, data.test, type = "response")
+mse.train = mean((pred.train-data.train$Fat)^2)
+mse.test = mean((pred.test-data.test$Fat)^2)
+print(sprintf("MSE_train: %f, MSE_test: %f", mse.train, mse.test))
+```
+
+## Task 3
+```{r}
+library(glmnet)
+library(ggplot2)
+library(reshape2)
+
+# Plots the values of the channels as a function of log_10(theta)
+plt.reg = function(glmmodel) {
+  res = as.data.frame(as.matrix(glmmodel$beta))
+  res$channel = rownames(res)
+  res = melt(res, id = "channel")
+  res$variable = as.numeric(gsub("s", "", res$variable))
+  res$lambda = glmmodel$lambda[res$variable+1]
+  
+  ggplot(res, aes(lambda, value, color = channel)) +
+    geom_line() +
+    # TODO: Don't do this? Instead scale the x when putting in
+    scale_x_continuous(trans="log") +
+    xlab("log lambda") +
+    theme(legend.position = "none")
+}
+
+model.lasso = glmnet(data.train[,1:100], data.train$Fat, alpha=1)
+plt.reg(model.lasso)
+
+lasso.res = as.matrix(model.lasso$beta)
+colnames(lasso.res) = model.lasso$lambda
+lasso.nzero = apply(lasso.res, FUN = function(M) { 100 - length(as.vector(M[M == 0])) } , MARGIN = 2)
+lasso.3 = lasso.res[, which(lasso.nzero == 3)]
+print(colnames(lasso.3))
+```
+
+## Task 4
+TODO: Lambda is way to fking huge
+```{r}
+model.ridge = glmnet(data.train[,1:100], data.train$Fat, alpha = 0)
+plt.reg(model.ridge)
+```
+
+## Task 5
+TODO: Is missing the scatter plot for true test target vs predicted test.
+```{r}
+model.cv = cv.glmnet(as.matrix(data.train[,1:100]), as.matrix(data.train$Fat), alpha = 1)
+
+plot(log(model.cv$lambda), model.cv$cvm, xlab = "log lambda ", ylab = "Mean MSE error")
+
+lambda.opt = model.cv$lambda.min
+lambda.opt.idx = which(model.cv$lambda == lambda.opt)
+lambda.opt.nzero = model.cv$nzero[lambda.opt.idx]
+print(sprintf("Optimal lambda: %f, features > 0: %d", lambda.opt, lambda.opt.nzero))
+
+opt.predict = predict(model.cv$glmnet.fit, as.matrix(data.test[,1:100]), type = "response")
+
+plot(opt.predict, type = "b", col = "blue")
+points(data.train$Fat, col = "Orange")
+```
+
+# Assignment 2
+## Task 1
+```{r}
+data = read.csv("bank-full.csv", sep = ";", stringsAsFactors = T, header = T)
+data$duration = c()
+N = nrow(data)
+set.seed(12345)
+ids = sample(1:N, floor(N*0.4))
+data.train = data[ids,]
+
+ids1 = setdiff(1:N, ids)
+set.seed(12345)
+ids2 = sample(ids1, floor(N*0.3))
+data.val = data[ids2,]
+
+ids3 = setdiff(ids1, ids2)
+data.test = data[ids3,]
+```
+
+## Task 2
+TODO: Check parameter control
+```{r}
+library(tree)
+
+# Returns the missclassification rate for a given tree and data
+get_errors = function(tree, newdata) {
+  pred = predict(tree, newdata, type = "class")
+  cm = table(newdata$y, pred)
+  print(cm)
+  1 - sum(diag(cm)) / nrow(newdata)
+}
+
+tree.a = tree(y ~ ., data = data.train)
+err.a.train = get_errors(tree.a, data.train)
+err.a.val = get_errors(tree.a, data.val)
+size.a = summary(tree.a)$size
+
+tree.b = tree(y ~ ., data = data.train, minsize = 7000)
+err.b.train = get_errors(tree.b, data.train)
+err.b.val = get_errors(tree.b, data.val)
+size.b = summary(tree.b)$size
+
+tree.c = tree(y ~ ., data.train, mindev = 0.0005)
+err.c.train = get_errors(tree.c, data.train)
+err.c.val = get_errors(tree.c, data.val)
+size.c = summary(tree.c)$size
+
+comparison = data.frame(
+  c(err.a.train, err.b.train, err.c.train),
+  c(err.a.val, err.b.val, err.c.val),
+  c(size.a, size.b, size.c)
+)
+dimnames(comparison) = list(c("A", "B", "C"), c("Err train", "Err val", "Size"))
+```
+
+## Task 3
+```{r}
+score.train = rep(0, 49)
+score.val = rep(0, 49)
+for (c in 2:50) {
+  tree.pruned = prune.tree(tree.c, best = c)
+  pred.train = predict(tree.pruned, data.train, type = "tree")
+  pred.val = predict(tree.pruned, data.val, type = "tree")
+  score.train[c - 1] = deviance(pred.train)
+  score.val[c - 1] = deviance(pred.val)
+}
+
+deviances = data.frame(x = 2:50,
+                       train = score.train,
+                       validation = score.val)
+deviances = melt(deviances, id = c("x"))
+
+ggplot(deviances) +
+  geom_line(aes(x = x, y = value, color = variable)) +
+  xlab("Leaf count") +
+  ylab("Deviance")
+
+leaf.opt = which(score.val == min(score.val))
+```
+
+## Task 4
+```{r}
+tree.opt = prune.tree(tree.c, best = leaf.opt)
+pred.test = predict(tree.opt, data.test, type = "class")
+cm.test = table(data.test$y, pred.test)
+acc.test = sum(diag(cm.test)) / nrow(data.test)
+
+precision.test = cm.test[2,2] / (cm.test[2,2] + cm.test[1,2])
+recall.test = cm.test[2,2] / (cm.test[2,1] + cm.test[2,2])
+f1.test = 2 / (recall.test ^ -1 + precision.test ^ -1)
+```
+
+## Task 5
+TODO: I don't know what he want's he. Look at slides for 2 a
+```{r}
+
+```
+
+## Task 6
+TODO: Logistic model won't predict factors :(
+```{r}
+factors = levels(data.test$y)
+pis = seq(from=0.05, to=0.95, by=0.05)
+
+# Tree
+pred.tree = predict(tree.opt, data.test, type = "vector")
+tpr.tree = c()
+fpr.tree = c()
+
+# Logistic model
+lg = glm(as.factor(y)~., data = data.train, family = "binomial")
+pred.lg = predict(lg, data.test, type = "response")
+
+
+for (pi in pis) {
+  # Get TPR/FPR for tree
+  pred.tree.pi = apply(pred.tree, MARGIN = 1, FUN = function(row) {
+    # 2nd element is 'yes' probability, same for factors
+    if (row[2] > pi) factors[2] else factors[1]
+  })
+  cm.tree = table(data.test$y, pred.tree.pi)
+  tpr.tree = c(tpr.tree, cm.tree[2,2] / (cm.tree[1,2] + cm.tree[2,2]))
+  fpr.tree = c(fpr.tree, cm.tree[2,1] / (cm.tree[1,1] + cm.tree[2,1]))
+  
+  # Get TPR/FPR for log reg
+}
+
+ratios = data.frame(TPR = tpr.tree, FPR = fpr.tree)
+ratios = melt(ratios, id=c("FPR"))
+
+ggplot(ratios) +
+  geom_line(aes(x = FPR, y = value, color = variable)) +
+  ylab("TPR")
+```
+
+# Assignment 3
+## Task 1
+TODO: Should we not use the last column at all? Is it y?
+```{r}
+library(caret)
+data = read.csv("communities.csv", header = T)
+scaler = preProcess(data[-ncol(data)])
+data = predict(scaler, data)
+
+N = nrow(data)
+X = as.matrix(data)
+S = (t(X) %*% X) / N
+eigenvectors = eigen(S)
+```
+
+## Task 2
+```{r}
+res = princomp(X)
+summary(res)
+```
+
