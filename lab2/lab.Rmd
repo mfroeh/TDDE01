@@ -10,6 +10,7 @@ setwd("~/dev/TDDE01/lab2")
 # install.packages("reshape2")
 # install.packages("tidyr")
 # install.packages("tree")
+# install.packages("latex2exp")
 ```
 
 # Assignment 1
@@ -39,9 +40,10 @@ print(sprintf("MSE_train: %f, MSE_test: %f", mse.train, mse.test))
 library(glmnet)
 library(ggplot2)
 library(reshape2)
+library(latex2exp)
 
-# Plots the values of the channels as a function of log_10(theta)
-plt.reg = function(glmmodel) {
+# Plots the values of the channels as a function of log theta
+plt.reg = function(glmmodel, title) {
   res = as.data.frame(as.matrix(glmmodel$beta))
   res$channel = rownames(res)
   res = melt(res, id = "channel")
@@ -50,14 +52,15 @@ plt.reg = function(glmmodel) {
   
   ggplot(res, aes(lambda, value, color = channel)) +
     geom_line() +
-    # TODO: Don't do this? Instead scale the x when putting in
-    scale_x_continuous(trans="log") +
-    xlab("log lambda") +
-    theme(legend.position = "none")
+    scale_x_continuous(trans='log') +
+    xlab(TeX("\\log \\lambda")) +
+    ylab(TeX("Values of the $\\textbf{\\theta}_i$")) +
+    ggtitle(title) +
+    theme(legend.position = "none", plot.title = element_text(hjust = 0.5))
 }
 
 model.lasso = glmnet(data.train[,1:100], data.train$Fat, alpha=1)
-plt.reg(model.lasso)
+plt.reg(model.lasso, TeX("Lasso regression model parameters as a function of \\lambda"))
 
 lasso.res = as.matrix(model.lasso$beta)
 colnames(lasso.res) = model.lasso$lambda
@@ -67,28 +70,39 @@ print(colnames(lasso.3))
 ```
 
 ## Task 4
-TODO: Lambda is way to fking huge
 ```{r}
 model.ridge = glmnet(data.train[,1:100], data.train$Fat, alpha = 0)
-plt.reg(model.ridge)
+plt.reg(model.ridge, TeX("Ridge regression model parameters as a function of \\lambda"))
 ```
 
 ## Task 5
-TODO: Is missing the scatter plot for true test target vs predicted test.
+TODO: What is the CV score? Using mean mses for now
 ```{r}
 model.cv = cv.glmnet(as.matrix(data.train[,1:100]), as.matrix(data.train$Fat), alpha = 1)
+res = data.frame(lambda=model.cv$lambda, cvm=model.cv$cvm)
 
-plot(log(model.cv$lambda), model.cv$cvm, xlab = "log lambda ", ylab = "Mean MSE error")
+ggplot(res, aes(lambda, cvm)) +
+  geom_line() +
+  ylab(TeX("Mean $MSE$")) + 
+  xlab(TeX("\\log \\lambda")) +
+  scale_x_continuous(trans="log") +
+  ggtitle(TeX("Mean $MSE$ as a function of \\lambda")) +
+  theme(plot.title = element_text(hjust = 0.5))
 
 lambda.opt = model.cv$lambda.min
 lambda.opt.idx = which(model.cv$lambda == lambda.opt)
 lambda.opt.nzero = model.cv$nzero[lambda.opt.idx]
 print(sprintf("Optimal lambda: %f, features > 0: %d", lambda.opt, lambda.opt.nzero))
 
-opt.predict = predict(model.cv$glmnet.fit, as.matrix(data.test[,1:100]), type = "response")
+opt.predict = predict(model.cv$glmnet.fit, as.matrix(data.test[,1:100]), lambda.opt, type = "response")
 
-plot(opt.predict, type = "b", col = "blue")
-points(data.train$Fat, col = "Orange")
+res = data.frame(x = rownames(data.test), true=data.test$Fat, pred=opt.predict[,1])
+res = melt(res, id=c("x"))
+ggplot(res, aes(x, value, color=variable)) +
+  geom_point() +
+  xlab("Test instances") +
+  ylab("y") +
+  theme(axis.text.x =element_blank())
 ```
 
 # Assignment 2
@@ -119,7 +133,6 @@ library(tree)
 get_errors = function(tree, newdata) {
   pred = predict(tree, newdata, type = "class")
   cm = table(newdata$y, pred)
-  print(cm)
   1 - sum(diag(cm)) / nrow(newdata)
 }
 
@@ -178,15 +191,20 @@ pred.test = predict(tree.opt, data.test, type = "class")
 cm.test = table(data.test$y, pred.test)
 acc.test = sum(diag(cm.test)) / nrow(data.test)
 
-precision.test = cm.test[2,2] / (cm.test[2,2] + cm.test[1,2])
-recall.test = cm.test[2,2] / (cm.test[2,1] + cm.test[2,2])
-f1.test = 2 / (recall.test ^ -1 + precision.test ^ -1)
+tpr.test = cm.test[2,2] / (cm.test[2,2] + cm.test[2,1])
+ppv.test = cm.test[2,2] / (cm.test[2,2] + cm.test[1,2])
+f1.test = 2 * (ppv.test * tpr.test) / (ppv.test + tpr.test)
+print(sprintf("Test acc: %f, Test f1: %f", acc.test, f1.test))
 ```
 
 ## Task 5
-TODO: I don't know what he want's he. Look at slides for 2 a
+TODO: How matrix, results unexpected.
 ```{r}
-
+library(rpart)
+tree.lossmatrix = rpart(y ~ ., data = data.train, method = "class", parms = list(loss = matrix(c(0, 5, 1, 0), ncol=2)))
+pred.lossmatrix = predict(tree.lossmatrix, data.test, type = "class")
+cm.lossmatrix = table(data.test$y, pred.lossmatrix)
+print(cm.lossmatrix)
 ```
 
 ## Task 6
@@ -228,7 +246,6 @@ ggplot(ratios) +
 
 # Assignment 3
 ## Task 1
-TODO: Should we not use the last column at all? Is it y?
 ```{r}
 library(caret)
 data = read.csv("communities.csv", header = T)
