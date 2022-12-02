@@ -109,6 +109,7 @@ ggplot(res, aes(x, value, color=variable)) +
 ## Task 1
 ```{r}
 data = read.csv("bank-full.csv", sep = ";", stringsAsFactors = T, header = T)
+data = within(data, y <- relevel(y, ref="yes")) # Make yes the default level
 data$duration = c()
 N = nrow(data)
 set.seed(12345)
@@ -125,7 +126,6 @@ data.test = data[ids3,]
 ```
 
 ## Task 2
-TODO: Check parameter control
 ```{r}
 library(tree)
 
@@ -186,13 +186,16 @@ leaf.opt = which(score.val == min(score.val))
 
 ## Task 4
 ```{r}
+TPR = function(cm) { cm[1,1] / (cm[1,1] + cm[1,2]) }
+PPV = function(cm) { cm[1,1] / (cm[1,1] + cm[2,1]) }
+
 tree.opt = prune.tree(tree.c, best = leaf.opt)
 pred.test = predict(tree.opt, data.test, type = "class")
 cm.test = table(data.test$y, pred.test)
 acc.test = sum(diag(cm.test)) / nrow(data.test)
 
-tpr.test = cm.test[2,2] / (cm.test[2,2] + cm.test[2,1])
-ppv.test = cm.test[2,2] / (cm.test[2,2] + cm.test[1,2])
+tpr.test = TPR(cm.test)
+ppv.test = PPV(cm.test)
 f1.test = 2 * (ppv.test * tpr.test) / (ppv.test + tpr.test)
 print(sprintf("Test acc: %f, Test f1: %f", acc.test, f1.test))
 ```
@@ -201,47 +204,50 @@ print(sprintf("Test acc: %f, Test f1: %f", acc.test, f1.test))
 TODO: How matrix, results unexpected.
 ```{r}
 library(rpart)
-tree.lossmatrix = rpart(y ~ ., data = data.train, method = "class", parms = list(loss = matrix(c(0, 5, 1, 0), ncol=2)))
+tree.lossmatrix = rpart(y ~ ., data = data.train, method = "class", parms = list(loss = matrix(c(0, 1, 5, 0), ncol=2)))
 pred.lossmatrix = predict(tree.lossmatrix, data.test, type = "class")
 cm.lossmatrix = table(data.test$y, pred.lossmatrix)
 print(cm.lossmatrix)
 ```
 
 ## Task 6
-TODO: Logistic model won't predict factors :(
+TODO: ROC be fucked.
 ```{r}
-factors = levels(data.test$y)
-pis = seq(from=0.05, to=0.95, by=0.05)
+FPR = function(cm) { cm[1,2] / (cm[1,2] + cm[2,2]) }
 
-# Tree
+# Optimal tree prediction
 pred.tree = predict(tree.opt, data.test, type = "vector")
-tpr.tree = c()
-fpr.tree = c()
 
-# Logistic model
-lg = glm(as.factor(y)~., data = data.train, family = "binomial")
+# Logistic model and prediction
+lg = glm(y~., data = data.train, family = "binomial")
 pred.lg = predict(lg, data.test, type = "response")
 
-
-for (pi in pis) {
-  # Get TPR/FPR for tree
-  pred.tree.pi = apply(pred.tree, MARGIN = 1, FUN = function(row) {
-    # 2nd element is 'yes' probability, same for factors
-    if (row[2] > pi) factors[2] else factors[1]
-  })
-  cm.tree = table(data.test$y, pred.tree.pi)
-  tpr.tree = c(tpr.tree, cm.tree[2,2] / (cm.tree[1,2] + cm.tree[2,2]))
-  fpr.tree = c(fpr.tree, cm.tree[2,1] / (cm.tree[1,1] + cm.tree[2,1]))
+tpr.tree = c()
+fpr.tree = c()
+tpr.lg = c()
+fpr.lg = c()
+for (pi in seq(from=0.05, to=0.95, by=0.05)) {
+  # Tree, first element of row is the yes probability
+  pred.tree.pi = apply(pred.tree, 1, FUN = function(row) { if (row[1] > pi) "yes" else "no" })
+  cm.tree = table(data.test$y, factor(pred.tree.pi, levels=c("yes", "no")))
+  tpr.tree = c(tpr.tree, TPR(cm.tree))
+  fpr.tree = c(fpr.tree, FPR(cm.tree))
+  print(cm.tree)
   
-  # Get TPR/FPR for log reg
+  # Logistic regression,
+  pred.lg.pi = sapply(pred.lg, FUN = function(y_hat) { if(y_hat > pi) "yes" else "no" })
+  cm.lg = table(data.test$y, factor(pred.lg.pi, levels=c("yes", "no")))
+  tpr.lg = c(tpr.lg, TPR(cm.lg))
+  fpr.lg = c(fpr.lg, FPR(cm.lg))
 }
 
-ratios = data.frame(TPR = tpr.tree, FPR = fpr.tree)
-ratios = melt(ratios, id=c("FPR"))
+res = data.frame(fpr.tree, tpr.tree, fpr.lg, tpr.lg)
 
-ggplot(ratios) +
-  geom_line(aes(x = FPR, y = value, color = variable)) +
-  ylab("TPR")
+ggplot(res) +
+  geom_line(aes(x=fpr.lg, y=tpr.lg), color="red") +
+  geom_line(aes(x=fpr.tree, y=tpr.tree), color="blue") +
+  ylab("TPR") +
+  xlab("FPR")
 ```
 
 # Assignment 3
