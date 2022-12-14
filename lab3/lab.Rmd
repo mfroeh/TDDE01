@@ -1,0 +1,146 @@
+---
+title: "TDDE01: Lab 3"
+---
+
+```{r}
+# install.packages("kernlab")
+# install.packages("neuralnet")
+# install.packages("sigmoid")
+```
+
+
+# Assignment 1
+```{r}
+set.seed(1234567890)
+library(geosphere)
+stations = read.csv("stations.csv", encoding = "latin1")
+temps = read.csv("temps50k.csv")
+st = merge(stations, temps, by="station_number")
+```
+
+# Assignment 2
+## Task 1 and 2
+```{r}
+library(kernlab)
+set.seed(1234567890)
+
+data(spam)
+foo <- sample(nrow(spam))
+spam <- spam[foo,]
+spam[,-58]<-scale(spam[,-58])
+tr <- spam[1:3000, ]
+va <- spam[3001:3800, ]
+trva <- spam[1:3800, ]
+te <- spam[3801:4601, ] 
+
+by <- 0.3
+err_va <- NULL
+for(i in seq(by,5,by)) {
+  filter <- ksvm(type~.,data=tr,kernel="rbfdot",kpar=list(sigma=0.05),C=i,scaled=FALSE)
+  mailtype <- predict(filter,va[,-58])
+  t <- table(mailtype,va[,58])
+  err_va <-c(err_va,(t[1,2]+t[2,1])/sum(t))
+}
+
+print(which.min(err_va)*by)
+filter0 <- ksvm(type~.,data=tr,kernel="rbfdot",kpar=list(sigma=0.05),C=which.min(err_va)*by,scaled=FALSE)
+mailtype <- predict(filter0,va[,-58])
+t <- table(mailtype,va[,58])
+err0 <- (t[1,2]+t[2,1])/sum(t)
+err0
+
+print(which.min(err_va)*by)
+filter1 <- ksvm(type~.,data=tr,kernel="rbfdot",kpar=list(sigma=0.05),C=which.min(err_va)*by,scaled=FALSE)
+mailtype <- predict(filter1,te[,-58])
+t <- table(mailtype,te[,58])
+err1 <- (t[1,2]+t[2,1])/sum(t)
+err1
+
+print(which.min(err_va)*by)
+filter2 <- ksvm(type~.,data=trva,kernel="rbfdot",kpar=list(sigma=0.05),C=which.min(err_va)*by,scaled=FALSE)
+mailtype <- predict(filter2,te[,-58])
+t <- table(mailtype,te[,58])
+err2 <- (t[1,2]+t[2,1])/sum(t)
+err2
+
+print(which.min(err_va)*by)
+filter3 <- ksvm(type~.,data=spam,kernel="rbfdot",kpar=list(sigma=0.05),C=which.min(err_va)*by,scaled=FALSE)
+mailtype <- predict(filter3,te[,-58])
+t <- table(mailtype,te[,58])
+err3 <- (t[1,2]+t[2,1])/sum(t)
+err3
+```
+
+## Task 3
+TODO
+```{r}
+sv<-alphaindex(filter3)[[1]]
+co<-coef(filter3)[[1]]
+inte<- -b(filter3)
+k<-NULL
+for(i in 1:10){ # We produce predictions for just the first 10 points in the dataset.
+  k2<-NULL
+  for(j in 1:length(sv)){
+    # k2 <- 
+  }
+  k<-c(k, sign(k2 + inte))
+}
+k
+print(predict(filter3,spam[1:10,-58], type = "decision"))
+```
+
+# Assignment 3
+# Task 1 and 2
+```{r}
+library(neuralnet)
+set.seed(1234567890)
+x <- runif(500, 0, 10)
+mydata <- data.frame(x, Sin=sin(Var))
+tr <- mydata[1:25,] # Training
+te <- mydata[26:500,] # Test
+
+# Train a NN with the given activation function and plot result
+trainplot = function(h) {
+  # Random initialization of the weights in the interval [-1, 1]
+  set.seed(1234567890)
+  winit = runif(min=-1, max=1, n=10*2+11)
+  nn = neuralnet(Sin~., tr, hidden=10, startweights=winit, act.fct=h)
+  # Plot of the training data (black), test data (blue), and predictions (red)
+  plot.new()
+  plot(tr, cex=2, xlab="x", ylab="sin(x)")
+  points(te, col="blue", cex=1)
+  points(te[,1], predict(nn,te), col="red", cex=1)
+  nn
+}
+
+# Use function `sigmoid.relu` as a replacement for h2=max(0, x)
+# max(0, x) is not differentiable and therefore not compatible with `neuralnet`
+library(sigmoid)
+
+nn_h0 = trainplot("logistic")
+nn_h1 = trainplot(function(x) x)
+nn_h2 = trainplot(relu)
+nn_h3 = trainplot(function(x) log(1 + exp(x)))
+```
+
+# Task 3
+```{r}
+set.seed(1234567890)
+test_x = runif(min=0, max=50, n=500)
+test = data.frame(x = test_x, Sin = sin(test_x))
+plot(test, col="blue", cex=1, ylim=c(-8.5, 2), xlab="x", ylab="sin(x)")
+points(test$x, predict(nn_h0, test), col="red", cex=1)
+```
+
+# Task 5
+```{r}
+set.seed(1234567890)
+train_y = runif(min=0, max=10, n=500)
+train = data.frame(x=sin(train_y), y=train_y)
+
+set.seed(1234567890)
+nn = neuralnet(y~., train, hidden=10, startweights=runif(min=-1, max=1, n=10*2+11), threshold=0.1)
+plot(train, col="blue", cex=1, xlab="sin(x)", ylab="x")
+points(train$x, predict(nn, train), col="red", cex=1)
+```
+
