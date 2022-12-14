@@ -11,6 +11,7 @@ setwd("~/dev/TDDE01/lab2")
 # install.packages("tidyr")
 # install.packages("tree")
 # install.packages("latex2exp")
+# install.packages("pROC")
 ```
 
 # Assignment 1
@@ -64,7 +65,7 @@ plt.reg(model.lasso, TeX("Lasso regression model parameters as a function of \\l
 
 lasso.res = as.matrix(model.lasso$beta)
 colnames(lasso.res) = model.lasso$lambda
-lasso.nzero = apply(lasso.res, FUN = function(M) { 100 - length(as.vector(M[M == 0])) } , MARGIN = 2)
+lasso.nzero = apply(lasso.res, FUN = function(M) { 100 - length(as.vector(M[M == 0])) }, MARGIN = 2)
 lasso.3 = lasso.res[, which(lasso.nzero == 3)]
 print(colnames(lasso.3))
 ```
@@ -109,8 +110,9 @@ ggplot(res, aes(x, value, color=variable)) +
 ## Task 1
 ```{r}
 data = read.csv("bank-full.csv", sep = ";", stringsAsFactors = T, header = T)
-data = within(data, y <- relevel(y, ref="yes")) # Make yes the default level
+data = within(data, y <- relevel(y, ref="yes")) # Make yes the reference level
 data$duration = c()
+
 N = nrow(data)
 set.seed(12345)
 ids = sample(1:N, floor(N*0.4))
@@ -182,6 +184,12 @@ ggplot(deviances) +
   ylab("Deviance")
 
 leaf.opt = which(score.val == min(score.val))
+print(sprintf("The optimal leaf count is %d", leaf.opt))
+
+tree.opt = prune.tree(tree.c, best = leaf.opt)
+print(summary(tree.opt))
+plot(tree.opt)
+text(tree.opt)
 ```
 
 ## Task 4
@@ -189,7 +197,6 @@ leaf.opt = which(score.val == min(score.val))
 TPR = function(cm) { cm[1,1] / (cm[1,1] + cm[1,2]) }
 PPV = function(cm) { cm[1,1] / (cm[1,1] + cm[2,1]) }
 
-tree.opt = prune.tree(tree.c, best = leaf.opt)
 pred.test = predict(tree.opt, data.test, type = "class")
 cm.test = table(data.test$y, pred.test)
 acc.test = sum(diag(cm.test)) / nrow(data.test)
@@ -197,21 +204,25 @@ acc.test = sum(diag(cm.test)) / nrow(data.test)
 tpr.test = TPR(cm.test)
 ppv.test = PPV(cm.test)
 f1.test = 2 * (ppv.test * tpr.test) / (ppv.test + tpr.test)
-print(sprintf("Test acc: %f, Test f1: %f", acc.test, f1.test))
+print(sprintf("Test acc: %f, Test F1-score: %f, Test recall rate: %f", acc.test, f1.test, tpr.test))
+print(cm.test)
 ```
 
 ## Task 5
-TODO: How matrix, results unexpected.
 ```{r}
-library(rpart)
-tree.lossmatrix = rpart(y ~ ., data = data.train, method = "class", parms = list(loss = matrix(c(0, 1, 5, 0), ncol=2)))
-pred.lossmatrix = predict(tree.lossmatrix, data.test, type = "class")
+pred.probs = predict(tree.opt, data.test, type = "vector")
+pred.lossmatrix = ifelse(pred.probs[,1]/pred.probs[,2] > 1/5, "yes", "no")
 cm.lossmatrix = table(data.test$y, pred.lossmatrix)
+acc.lossmatrix = sum(diag(cm.lossmatrix)) / nrow(data.test)
+
+tpr.lossmatrix = TPR(cm.lossmatrix)
+ppv.lossmatrix = PPV(cm.lossmatrix)
+f1.lossmatrix = 2 * (ppv.lossmatrix * tpr.lossmatrix) / (ppv.lossmatrix + tpr.lossmatrix)
+print(sprintf("Lossmatrix test acc: %f, Lossmatrix test F1-score: %f, Recall: %f", acc.lossmatrix, f1.lossmatrix, tpr.lossmatrix))
 print(cm.lossmatrix)
 ```
 
 ## Task 6
-TODO: ROC be fucked.
 ```{r}
 FPR = function(cm) { cm[1,2] / (cm[1,2] + cm[2,2]) }
 
@@ -228,15 +239,15 @@ tpr.lg = c()
 fpr.lg = c()
 for (pi in seq(from=0.05, to=0.95, by=0.05)) {
   # Tree, first element of row is the yes probability
-  pred.tree.pi = apply(pred.tree, 1, FUN = function(row) { if (row[1] > pi) "yes" else "no" })
+  pred.tree.pi = ifelse(pred.tree[,1]>pi, "yes", "no")
   cm.tree = table(data.test$y, factor(pred.tree.pi, levels=c("yes", "no")))
   tpr.tree = c(tpr.tree, TPR(cm.tree))
   fpr.tree = c(fpr.tree, FPR(cm.tree))
-  print(cm.tree)
   
-  # Logistic regression,
-  pred.lg.pi = sapply(pred.lg, FUN = function(y_hat) { if(y_hat > pi) "yes" else "no" })
+  # Logistic regression
+  pred.lg.pi = ifelse(pred.lg>pi, "yes", "no")
   cm.lg = table(data.test$y, factor(pred.lg.pi, levels=c("yes", "no")))
+  print(cm.lg)
   tpr.lg = c(tpr.lg, TPR(cm.lg))
   fpr.lg = c(fpr.lg, FPR(cm.lg))
 }
@@ -244,8 +255,8 @@ for (pi in seq(from=0.05, to=0.95, by=0.05)) {
 res = data.frame(fpr.tree, tpr.tree, fpr.lg, tpr.lg)
 
 ggplot(res) +
-  geom_line(aes(x=fpr.lg, y=tpr.lg), color="red") +
   geom_line(aes(x=fpr.tree, y=tpr.tree), color="blue") +
+  geom_line(aes(x=fpr.lg, y=tpr.lg), color="red") +
   ylab("TPR") +
   xlab("FPR")
 ```
@@ -261,12 +272,77 @@ data = predict(scaler, data)
 N = nrow(data)
 X = as.matrix(data)
 S = (t(X) %*% X) / N
-eigenvectors = eigen(S)
+eigen = eigen(S)
+
+evalues.cum = sum(eigen$values)
+relativesum = 0
+for (i in 1:length(eigen$values)) {
+  # How much relative variance is captured by the component
+  relative = eigen$values[i] / evalues.cum
+  relativesum = relativesum + relative
+  if (relativesum >= 0.95) {
+    print(sprintf("%d components are needed to capture 95 percent of the variance", i))
+    break
+  }
+}
+
+print(sprintf("Component 1 captures %f percent of the variance", 100 * eigen$values[1] / evalues.cum))
+print(sprintf("Component 2 captures %f percent of the variance", 100 * eigen$values[2] / evalues.cum))
 ```
 
 ## Task 2
 ```{r}
 res = princomp(X)
 summary(res)
+```
+
+## Task 3
+TODO: Errors are too good to be true.
+```{r}
+data = read.csv("communities.csv", header = T)
+scaler = preProcess(data)
+data = predict(scaler, data)
+
+N = nrow(data)
+Y = ncol(data)
+ids = sample(1:N, floor(N*0.5))
+data.train = data[ids,]
+data.test = data[-ids,]
+
+model = lm(data.train[,Y]~., data.train)
+pred.train = predict(model, data.train)
+pred.test = predict(model, data.test)
+err.train = mean((pred.train - data.train[,Y]) ^ 2)
+err.test = mean((pred.test - data.test[,Y]) ^ 2)
+print(sprintf("Train MSE: %f, Test MSE: %f", err.train, err.test))
+```
+
+## Task 4
+```{r}
+lossfun = function(theta) {
+  pred = as.matrix(data.train[,-Y]) %*% theta
+  mean((pred - data.train[,Y]) ^ 2)
+}
+
+theta = rep(0, Y-1)
+err.train = c()
+err.test = c()
+
+IT = 3000
+for (i in 1:IT) {
+  print(sprintf("Starting iteration %d/%d", i, IT))
+  res = optim(theta, lossfun, method = "BFGS", control = list(maxit = 1))
+  theta = res$par
+  err.train = c(err.train, lossfun(theta))
+  pred.test = as.matrix(data.test[,-Y]) %*% theta
+  err.test = c(err.test, mean((pred.test - data.test[,Y]) ^ 2))
+}
+
+res = data.frame(x = 1:IT, train = err.train, test = err.test)
+res = res[500:nrow(res),]
+res = melt(res, id=c("x"))
+
+ggplot(res, aes(x = x, y = value, color = variable)) +
+  geom_line()
 ```
 
