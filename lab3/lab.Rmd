@@ -95,7 +95,7 @@ print(predict(filter3,spam[1:10,-58], type = "decision"))
 library(neuralnet)
 set.seed(1234567890)
 x <- runif(500, 0, 10)
-mydata <- data.frame(x, Sin=sin(Var))
+mydata <- data.frame(x, Sin=sin(x))
 tr <- mydata[1:25,] # Training
 te <- mydata[26:500,] # Test
 
@@ -130,6 +130,13 @@ test_x = runif(min=0, max=50, n=500)
 test = data.frame(x = test_x, Sin = sin(test_x))
 plot(test, col="blue", cex=1, ylim=c(-8.5, 2), xlab="x", ylab="sin(x)")
 points(test$x, predict(nn_h0, test), col="red", cex=1)
+```
+
+# Task 4
+```{r}
+print(nn_h0$weights)
+indices = c(0, 1,2,3,4,5,7,9) + 1
+print(sum(nn_h0$weights[[1]][[2]][indices]))
 ```
 
 # Task 5
